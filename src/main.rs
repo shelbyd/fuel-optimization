@@ -78,13 +78,13 @@ impl RocketState {
     fn acceleration(&self, problem: &FuelOptimizationProblem) -> f64 {
         let total_mass = self.fuel_mass + problem.rocket_mass;
         let air_density = 1.46 * E.powf(-0.000134 * self.position);
-        let thrust = (problem.fuel_efficiency * -problem.gravity * self.mass_flow_rate(problem));
-        let gravitational_drag = (problem.gravity * total_mass);
-        let air_drag = (problem.cross_sectional_area / 2.0
+        let thrust = problem.fuel_efficiency * -problem.gravity * self.mass_flow_rate(problem);
+        let gravitational_drag = problem.gravity * total_mass;
+        let air_drag = problem.cross_sectional_area / 2.0
             * self.velocity
             * self.velocity
             * air_density
-            * problem.drag_coefficient(self.velocity));
+            * problem.drag_coefficient(self.velocity);
         (thrust + gravitational_drag - air_drag) / total_mass
     }
 }
