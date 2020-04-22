@@ -1,5 +1,6 @@
 #![feature(clamp)]
 
+use interpolation::Lerp;
 use ordered_float::OrderedFloat;
 use std::collections::BTreeMap;
 use std::f64::{self, consts::E};
@@ -15,17 +16,25 @@ struct FuelOptimizationProblem {
     max_throttle_change_rate: f64, // % / s
     // Velocity -> coefficient
     drag_coefficient: BTreeMap<OrderedFloat<f64>, f64>,
+    max_drag_coefficient: f64,
 }
 
 impl FuelOptimizationProblem {
     fn drag_coefficient(&self, velocity: f64) -> f64 {
-        if velocity < 1.7 * MACH_ONE {
-            0.3
-        } else if velocity < 5.0 * MACH_ONE {
-            0.15
-        } else {
-            0.07
-        }
+        let velocity = OrderedFloat(velocity);
+        let first_below = self
+            .drag_coefficient
+            .range(..velocity)
+            .next_back()
+            .unwrap_or((&OrderedFloat(f64::MIN), &self.max_drag_coefficient));
+        let next_above = self
+            .drag_coefficient
+            .range(velocity..)
+            .next()
+            .unwrap_or((&OrderedFloat(f64::MAX), &0.0));
+
+        let percent = (velocity.0 - (first_below.0).0) / ((next_above.0).0 - (first_below.0).0);
+        first_below.1.lerp(next_above.1, &percent)
     }
 }
 
@@ -88,7 +97,14 @@ fn main() {
         fuel_efficiency: 300.0,
         max_flow_rate: 20.0,
         max_throttle_change_rate: 0.2,
-        drag_coefficient: BTreeMap::new(),
+        drag_coefficient: {
+            let mut map = BTreeMap::new();
+            map.insert(OrderedFloat(0.0), 0.3);
+            map.insert(OrderedFloat(1.7 * MACH_ONE), 0.15);
+            map.insert(OrderedFloat(5.0 * MACH_ONE), 0.07);
+            map
+        },
+        max_drag_coefficient: 0.3,
     };
     let initial_state = RocketState {
         fuel_mass: 950.0,
@@ -117,14 +133,14 @@ fn simulate(
     initial_state: RocketState,
     total_time: f64,
     timestep: f64,
-    desired_throttle: impl Fn(&FuelOptimizationProble, &RocketState) -> f64,
+    desired_throttle: impl Fn(&FuelOptimizationProblem, &RocketState) -> f64,
     on_step: impl Fn(&RocketState, f64),
 ) {
     let mut current_time = 0.0;
     let mut state = initial_state;
     while current_time <= total_time {
         on_step(&state, current_time);
-        state.tick(&problem, timestep, desired_throttle(&state));
+        state.tick(&problem, timestep, desired_throttle(problem, &state));
 
         current_time += timestep;
     }
