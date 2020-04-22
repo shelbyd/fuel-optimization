@@ -95,13 +95,36 @@ fn main() {
         ..RocketState::default()
     };
 
-    let timestep = 0.1;
-    let total_time = 100.0; // 20 minutes in seconds.
+    simulate(
+        &problem,
+        initial_state,
+        100.0,
+        0.1,
+        |_, _| 1.0,
+        |state, current_time| {
+            println!(
+                "{}\t{}\t{}",
+                current_time,
+                state.acceleration(&problem) / -problem.gravity,
+                state.fuel_mass
+            );
+        },
+    );
+}
 
+fn simulate(
+    problem: &FuelOptimizationProblem,
+    initial_state: RocketState,
+    total_time: f64,
+    timestep: f64,
+    desired_throttle: impl Fn(&FuelOptimizationProble, &RocketState) -> f64,
+    on_step: impl Fn(&RocketState, f64),
+) {
     let mut current_time = 0.0;
     let mut state = initial_state;
     while current_time <= total_time {
-        state.tick(&problem, timestep, 1.0);
+        on_step(&state, current_time);
+        state.tick(&problem, timestep, desired_throttle(&state));
 
         current_time += timestep;
     }
