@@ -94,7 +94,7 @@ fn main() {
         gravity: -9.8,
         rocket_mass: 50.0,
         cross_sectional_area: 0.16,
-        fuel_efficiency: 300.0,
+        fuel_efficiency: 300.0, // ISP in seconds
         max_flow_rate: 20.0,
         max_throttle_change_rate: 0.2,
         drag_coefficient: {
