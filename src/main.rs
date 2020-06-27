@@ -1,5 +1,3 @@
-#![feature(clamp)]
-
 use interpolation::Lerp;
 use ordered_float::OrderedFloat;
 use std::collections::BTreeMap;
@@ -53,8 +51,7 @@ struct RocketState {
 impl RocketState {
     fn tick(&mut self, problem: &FuelOptimizationProblem, dt: f64, desired_throttle_opening: f64) {
         let max_throttle_change = problem.max_throttle_change_rate * dt;
-        let throttle_opening_delta = (desired_throttle_opening - self.throttle_opening)
-            .clamp(-max_throttle_change, max_throttle_change);
+        let throttle_opening_delta = clamp(desired_throttle_opening - self.throttle_opening, -max_throttle_change, max_throttle_change);
         self.throttle_opening += throttle_opening_delta;
         self.total_time += dt;
 
@@ -62,9 +59,9 @@ impl RocketState {
         self.position += self.velocity * dt;
 
         self.fuel_mass -= self.mass_flow_rate(problem) * dt;
-        self.fuel_mass = self.fuel_mass.clamp(0.0, f64::MAX);
+        self.fuel_mass = clamp(self.fuel_mass, 0.0, f64::MAX);
 
-        self.position = self.position.clamp(0.0, f64::MAX);
+        self.position = clamp(self.position, 0.0, f64::MAX);
         if self.velocity < 0.0 && self.position == 0.0 {
             self.velocity = 0.0;
         }
@@ -94,13 +91,6 @@ impl RocketState {
 
 fn main() -> Result<()> {
     let map = load_drag_coefficient_map(Path::new("./drag_coefficient_map.txt"))?;
-    let hard_coded = {
-        let mut map = BTreeMap::new();
-        map.insert(OrderedFloat(0.0), 0.3);
-        map.insert(OrderedFloat(1.7 * MACH_ONE), 0.15);
-        map.insert(OrderedFloat(5.0 * MACH_ONE), 0.07);
-        map
-    };
     let problem = FuelOptimizationProblem {
         gravity: -9.8,
         rocket_mass: 50.0,
@@ -172,5 +162,15 @@ fn simulate(
         state.tick(&problem, timestep, desired_throttle(problem, &state));
 
         current_time += timestep;
+    }
+}
+
+fn clamp(value: f64, min: f64, max: f64) -> f64 {
+    if value < min {
+        min
+    } else if value > max {
+        max
+    } else {
+        value
     }
 }
