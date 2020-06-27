@@ -4,6 +4,9 @@ use interpolation::Lerp;
 use ordered_float::OrderedFloat;
 use std::collections::BTreeMap;
 use std::f64::{self, consts::E};
+use std::path::Path;
+
+type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 const MACH_ONE: f64 = 343.0;
 
@@ -89,7 +92,15 @@ impl RocketState {
     }
 }
 
-fn main() {
+fn main() -> Result<()> {
+    let map = load_drag_coefficient_map(Path::new("./drag_coefficient_map.txt"))?;
+    let hard_coded = {
+        let mut map = BTreeMap::new();
+        map.insert(OrderedFloat(0.0), 0.3);
+        map.insert(OrderedFloat(1.7 * MACH_ONE), 0.15);
+        map.insert(OrderedFloat(5.0 * MACH_ONE), 0.07);
+        map
+    };
     let problem = FuelOptimizationProblem {
         gravity: -9.8,
         rocket_mass: 50.0,
@@ -97,13 +108,7 @@ fn main() {
         fuel_efficiency: 300.0, // ISP in seconds
         max_flow_rate: 20.0,
         max_throttle_change_rate: 0.2,
-        drag_coefficient: {
-            let mut map = BTreeMap::new();
-            map.insert(OrderedFloat(0.0), 0.3);
-            map.insert(OrderedFloat(1.7 * MACH_ONE), 0.15);
-            map.insert(OrderedFloat(5.0 * MACH_ONE), 0.07);
-            map
-        },
+        drag_coefficient: map,
         max_drag_coefficient: 0.3,
     };
     let initial_state = RocketState {
@@ -126,6 +131,30 @@ fn main() {
             );
         },
     );
+    Ok(())
+}
+
+fn load_drag_coefficient_map(path: &Path) -> Result<BTreeMap<OrderedFloat<f64>, f64>> {
+    let mut reader = csv::Reader::from_path(path)?;
+    let map = reader
+        .records()
+        .map(|result| parse_floats(&result?[0]))
+        .collect::<Result<Vec<_>>>()?
+        .into_iter()
+        .step_by(6)
+        .map(|floats| (OrderedFloat(floats[0] * MACH_ONE), floats[2]))
+        .collect::<BTreeMap<_, _>>();
+    Ok(map)
+}
+
+fn parse_floats(record: &str) -> Result<Vec<f64>> {
+    record
+        .split_whitespace()
+        .map(|s| {
+            s.parse::<f64>()
+                .map_err(|err| Box::new(err) as Box<dyn std::error::Error>)
+        })
+        .collect()
 }
 
 fn simulate(
