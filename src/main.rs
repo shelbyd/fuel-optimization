@@ -74,18 +74,21 @@ impl RocketState {
             problem.max_flow_rate * self.throttle_opening
         }
     }
-
-    fn acceleration(&self, problem: &FuelOptimizationProblem) -> f64 {
-        let total_mass = self.fuel_mass + problem.rocket_mass;
+        
+    fn air_drag(&self, problem: &FuelOptimizationProblem) -> f64 {
         let air_density = 1.46 * E.powf(-0.000134 * self.position);
-        let thrust = problem.fuel_efficiency * -problem.gravity * self.mass_flow_rate(problem);
-        let gravitational_drag = problem.gravity * total_mass;
-        let air_drag = problem.cross_sectional_area / 2.0
+            problem.cross_sectional_area / 2.0
             * self.velocity
             * self.velocity
             * air_density
-            * problem.drag_coefficient(self.velocity);
-        (thrust + gravitational_drag - air_drag) / total_mass
+            * problem.drag_coefficient(self.velocity)
+    }        
+
+    fn acceleration(&self, problem: &FuelOptimizationProblem) -> f64 {
+        let total_mass = self.fuel_mass + problem.rocket_mass;
+        let thrust = problem.fuel_efficiency * -problem.gravity * self.mass_flow_rate(problem);
+        let gravitational_drag = problem.gravity * total_mass;
+        (thrust + gravitational_drag - self.air_drag(problem)) / total_mass
     }
 }
 
@@ -97,30 +100,40 @@ fn main() -> Result<()> {
         cross_sectional_area: 0.16,
         fuel_efficiency: 300.0, // ISP in seconds
         max_flow_rate: 20.0,
-        max_throttle_change_rate: 0.2,
+        max_throttle_change_rate: 1.0,
         drag_coefficient: map,
-        max_drag_coefficient: 0.3,
+        max_drag_coefficient: 0.3, // why do we have a max drag coefficient?
     };
     let initial_state = RocketState {
         fuel_mass: 950.0,
         ..RocketState::default()
     };
 
+    let mut max_height = 0.0;
     simulate(
         &problem,
         initial_state,
-        100.0,
-        0.1,
-        |_, _| 1.0,
+        300.0,  //number of sec to iterate over
+        0.01,       //iternation time step
+        desired_throttle,
         |state, current_time| {
-            println!(
-                "{}\t{}\t{}",
-                current_time,
-                state.acceleration(&problem) / -problem.gravity,
-                state.fuel_mass
-            );
+            if state.position > max_height {
+                max_height = state.position
+            }
+                 println!(
+                 "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                 current_time,
+                 state.mass_flow_rate(&problem) / 20.0,
+                 state.acceleration(&problem) + problem.gravity,
+                 state.acceleration(&problem) - (state.air_drag(&problem)/(state.fuel_mass+problem.rocket_mass)),
+                 (state.air_drag(&problem)/(state.fuel_mass+problem.rocket_mass)),
+                 state.air_drag(&problem),
+                 state.position,
+                 state.fuel_mass
+                );
         },
     );
+    dbg!(max_height);
     Ok(())
 }
 
@@ -153,7 +166,7 @@ fn simulate(
     total_time: f64,
     timestep: f64,
     desired_throttle: impl Fn(&FuelOptimizationProblem, &RocketState) -> f64,
-    on_step: impl Fn(&RocketState, f64),
+    mut on_step: impl FnMut(&RocketState, f64),
 ) {
     let mut current_time = 0.0;
     let mut state = initial_state;
@@ -173,4 +186,15 @@ fn clamp(value: f64, min: f64, max: f64) -> f64 {
     } else {
         value
     }
+}
+
+fn desired_throttle(problem: &FuelOptimizationProblem, state: &RocketState) -> f64 {
+    let acceleration = state.acceleration(problem);
+    let drag = state.air_drag(problem);
+
+    if  (acceleration + problem.gravity) <= (acceleration - (drag/(state.fuel_mass+problem.rocket_mass))) {
+        1.0
+    }   else {
+        0.25
+        }
 }
