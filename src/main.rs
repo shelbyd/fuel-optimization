@@ -98,9 +98,9 @@ fn main() -> Result<()> {
         gravity: -9.8,
         rocket_mass: 50.0,
         cross_sectional_area: 0.16,
-        fuel_efficiency: 300.0, // ISP in seconds
-        max_flow_rate: 20.0,
-        max_throttle_change_rate: 1.0,
+        fuel_efficiency: 280.0, // ISP in seconds
+        max_flow_rate: 30.0,
+        max_throttle_change_rate: 01.0,
         drag_coefficient: map,
         max_drag_coefficient: 0.3, // why do we have a max drag coefficient?
     };
@@ -113,7 +113,7 @@ fn main() -> Result<()> {
     simulate(
         &problem,
         initial_state,
-        300.0,  //number of sec to iterate over
+        1000.0,  //number of sec to iterate over
         0.01,       //iternation time step
         desired_throttle,
         |state, current_time| {
@@ -121,13 +121,12 @@ fn main() -> Result<()> {
                 max_height = state.position
             }
                  println!(
-                 "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}",
+                 "{}\t{}\t{}\t{}\t{}\t{}\t{}",
                  current_time,
-                 state.mass_flow_rate(&problem) / 20.0,
+                 state.mass_flow_rate(&problem) / 30.0,
                  state.acceleration(&problem) + problem.gravity,
                  state.acceleration(&problem) - (state.air_drag(&problem)/(state.fuel_mass+problem.rocket_mass)),
-                 (state.air_drag(&problem)/(state.fuel_mass+problem.rocket_mass)),
-                 state.air_drag(&problem),
+                 state.velocity,
                  state.position,
                  state.fuel_mass
                 );
@@ -195,6 +194,6 @@ fn desired_throttle(problem: &FuelOptimizationProblem, state: &RocketState) -> f
     if  (acceleration + problem.gravity) <= (acceleration - (drag/(state.fuel_mass+problem.rocket_mass))) {
         1.0
     }   else {
-        0.25
+        1.0
         }
 }
