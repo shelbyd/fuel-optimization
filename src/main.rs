@@ -1,8 +1,18 @@
+#![feature(clamp)]
+
 use interpolation::Lerp;
 use ordered_float::OrderedFloat;
 use std::collections::BTreeMap;
 use std::f64::{self, consts::E};
 use std::path::Path;
+
+//ploter test lol not sure if I need it all
+use plotlib::page::Page;
+use plotlib::repr::Plot;
+use plotlib::view::ContinuousView;
+use plotlib::style::{PointMarker, PointStyle};
+
+
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -51,7 +61,8 @@ struct RocketState {
 impl RocketState {
     fn tick(&mut self, problem: &FuelOptimizationProblem, dt: f64, desired_throttle_opening: f64) {
         let max_throttle_change = problem.max_throttle_change_rate * dt;
-        let throttle_opening_delta = clamp(desired_throttle_opening - self.throttle_opening, -max_throttle_change, max_throttle_change);
+        let throttle_opening_delta = (desired_throttle_opening - self.throttle_opening)
+            .clamp(-max_throttle_change, max_throttle_change);
         self.throttle_opening += throttle_opening_delta;
         self.total_time += dt;
 
@@ -59,9 +70,9 @@ impl RocketState {
         self.position += self.velocity * dt;
 
         self.fuel_mass -= self.mass_flow_rate(problem) * dt;
-        self.fuel_mass = clamp(self.fuel_mass, 0.0, f64::MAX);
+        self.fuel_mass = self.fuel_mass.clamp(0.0, f64::MAX);
 
-        self.position = clamp(self.position, 0.0, f64::MAX);
+        self.position = self.position.clamp(0.0, f64::MAX);
         if self.velocity < 0.0 && self.position == 0.0 {
             self.velocity = 0.0;
         }
@@ -75,29 +86,40 @@ impl RocketState {
         }
     }
 
-    fn acceleration(&self, problem: &FuelOptimizationProblem) -> f64 {
-        let total_mass = self.fuel_mass + problem.rocket_mass;
+
+    fn air_drag(&self, problem: &FuelOptimizationProblem) -> f64 {
         let air_density = 1.46 * E.powf(-0.000134 * self.position);
-        let thrust = problem.fuel_efficiency * -problem.gravity * self.mass_flow_rate(problem);
-        let gravitational_drag = problem.gravity * total_mass;
-        let air_drag = problem.cross_sectional_area / 2.0
+        (problem.cross_sectional_area / 2.0)
             * self.velocity
             * self.velocity
             * air_density
-            * problem.drag_coefficient(self.velocity);
-        (thrust + gravitational_drag - air_drag) / total_mass
+            * problem.drag_coefficient(self.velocity)
+    }
+
+    fn acceleration(&self, problem: &FuelOptimizationProblem) -> f64 {
+        let total_mass = self.fuel_mass + problem.rocket_mass;
+        let thrust = problem.fuel_efficiency * -problem.gravity * self.mass_flow_rate(problem);
+        let gravitational_drag = problem.gravity * total_mass;
+        (thrust + gravitational_drag - self.air_drag(problem)) / total_mass
     }
 }
 
 fn main() -> Result<()> {
     let map = load_drag_coefficient_map(Path::new("./drag_coefficient_map.txt"))?;
+    let hard_coded = {
+        let mut map = BTreeMap::new();
+        map.insert(OrderedFloat(0.0), 0.3);
+        map.insert(OrderedFloat(1.7 * MACH_ONE), 0.15);
+        map.insert(OrderedFloat(5.0 * MACH_ONE), 0.07);
+        map
+    };
     let problem = FuelOptimizationProblem {
         gravity: -9.8,
         rocket_mass: 50.0,
         cross_sectional_area: 0.16,
         fuel_efficiency: 300.0, // ISP in seconds
         max_flow_rate: 20.0,
-        max_throttle_change_rate: 0.2,
+        max_throttle_change_rate: 2.0,
         drag_coefficient: map,
         max_drag_coefficient: 0.3,
     };
@@ -109,20 +131,59 @@ fn main() -> Result<()> {
     simulate(
         &problem,
         initial_state,
+        900.0,
         100.0,
-        0.1,
         |_, _| 1.0,
         |state, current_time| {
             println!(
-                "{}\t{}\t{}",
+                "{}\t{}\t{}\t{}\t{}\t{}",
                 current_time,
                 state.acceleration(&problem) / -problem.gravity,
-                state.fuel_mass
+                state.fuel_mass,
+                state.position,
+                state.velocity,
+                state.air_drag(&problem)
             );
         },
     );
+
+
+//ploter test
+// Scatter plots expect a list of pairs
+    let data1 = vec![
+        (-3.0, 2.3),
+        (-1.6, 5.3),
+        (0.3, 0.7),
+        (4.3, -1.4),
+        (6.4, 4.3),
+        (8.5, 3.7),
+    ];
+
+    // We create our scatter plot from the data
+    let s1: Plot = Plot::new(data1).point_style(
+        PointStyle::new()
+            .marker(PointMarker::Square) // setting the marker to be a square
+            .colour("#DD3355"),
+    ); // and a custom colour
+
+    // The 'view' describes what set of data is drawn
+    let v = ContinuousView::new()
+        .add(s1)
+        .x_range(-5., 10.)
+        .y_range(-2., 6.)
+        .x_label("Some varying variable")
+        .y_label("The response of something");
+
+    // A page with a single view is then saved to an SVG file
+    Page::single(&v).save("scatter.svg").unwrap();
+
+
+
+
     Ok(())
+
 }
+
 
 fn load_drag_coefficient_map(path: &Path) -> Result<BTreeMap<OrderedFloat<f64>, f64>> {
     let mut reader = csv::Reader::from_path(path)?;
@@ -162,15 +223,5 @@ fn simulate(
         state.tick(&problem, timestep, desired_throttle(problem, &state));
 
         current_time += timestep;
-    }
-}
-
-fn clamp(value: f64, min: f64, max: f64) -> f64 {
-    if value < min {
-        min
-    } else if value > max {
-        max
-    } else {
-        value
     }
 }
