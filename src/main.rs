@@ -131,8 +131,8 @@ fn main() -> Result<()> {
     simulate(
         &problem,
         initial_state,
-        900.0,
-        100.0,
+        90.0,
+        0.10,
         |_, _| 1.0,
         |state, current_time| {
             println!(
