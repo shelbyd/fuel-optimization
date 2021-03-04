@@ -1,17 +1,9 @@
-#![feature(clamp)]
 
 use interpolation::Lerp;
 use ordered_float::OrderedFloat;
 use std::collections::BTreeMap;
 use std::f64::{self, consts::E};
 use std::path::Path;
-
-//ploter test lol not sure if I need it all
-use plotlib::page::Page;
-use plotlib::repr::Plot;
-use plotlib::view::ContinuousView;
-use plotlib::style::{PointMarker, PointStyle};
-
 
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
@@ -86,13 +78,15 @@ impl RocketState {
         }
     }
 
+    fn air_density(&self, problem: &FuelOptimizationProblem) -> f64 {
+        1.46 * E.powf(-0.000134 * self.position)
+    }
 
     fn air_drag(&self, problem: &FuelOptimizationProblem) -> f64 {
-        let air_density = 1.46 * E.powf(-0.000134 * self.position);
         (problem.cross_sectional_area / 2.0)
             * self.velocity
             * self.velocity
-            * air_density
+            * self.air_density(problem)
             * problem.drag_coefficient(self.velocity)
     }
 
@@ -136,49 +130,17 @@ fn main() -> Result<()> {
         |_, _| 1.0,
         |state, current_time| {
             println!(
-                "{}\t{}\t{}\t{}\t{}\t{}",
+                "{}\t{}\t{}\t{}\t{}\t{}\t{}",
                 current_time,
                 state.acceleration(&problem) / -problem.gravity,
                 state.fuel_mass,
                 state.position,
+                state.air_density(&problem),
                 state.velocity,
-                state.air_drag(&problem)
+                state.air_drag(&problem) + (state.fuel_mass * state.acceleration(&problem))
             );
         },
     );
-
-
-//ploter test
-// Scatter plots expect a list of pairs
-    let data1 = vec![
-        (-3.0, 2.3),
-        (-1.6, 5.3),
-        (0.3, 0.7),
-        (4.3, -1.4),
-        (6.4, 4.3),
-        (8.5, 3.7),
-    ];
-
-    // We create our scatter plot from the data
-    let s1: Plot = Plot::new(data1).point_style(
-        PointStyle::new()
-            .marker(PointMarker::Square) // setting the marker to be a square
-            .colour("#DD3355"),
-    ); // and a custom colour
-
-    // The 'view' describes what set of data is drawn
-    let v = ContinuousView::new()
-        .add(s1)
-        .x_range(-5., 10.)
-        .y_range(-2., 6.)
-        .x_label("Some varying variable")
-        .y_label("The response of something");
-
-    // A page with a single view is then saved to an SVG file
-    Page::single(&v).save("scatter.svg").unwrap();
-
-
-
 
     Ok(())
 
