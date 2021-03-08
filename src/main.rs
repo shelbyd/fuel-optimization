@@ -1,10 +1,11 @@
-
 use interpolation::Lerp;
 use ordered_float::OrderedFloat;
 use std::collections::BTreeMap;
 use std::f64::{self, consts::E};
 use std::path::Path;
 
+use std::fs;
+use std::fs::File;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -122,15 +123,17 @@ fn main() -> Result<()> {
         ..RocketState::default()
     };
 
+    let mut csv_out = String::from("");
+
     simulate(
         &problem,
         initial_state,
         90.0,
-        0.10,
+        0.010,
         |_, _| 1.0,
         |state, current_time| {
-            println!(
-                "{}\t{}\t{}\t{}\t{}\t{}\t{}",
+            let data = format!(
+                "{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
                 current_time,
                 state.acceleration(&problem) / -problem.gravity,
                 state.fuel_mass,
@@ -139,13 +142,12 @@ fn main() -> Result<()> {
                 state.velocity,
                 state.air_drag(&problem) + (state.fuel_mass * state.acceleration(&problem))
             );
+            csv_out.push_str(&data)
         },
     );
-
+    fs::write("./data/test2.txt", csv_out).expect("Unable to write file");
     Ok(())
-
 }
-
 
 fn load_drag_coefficient_map(path: &Path) -> Result<BTreeMap<OrderedFloat<f64>, f64>> {
     let mut reader = csv::Reader::from_path(path)?;
@@ -176,7 +178,7 @@ fn simulate(
     total_time: f64,
     timestep: f64,
     desired_throttle: impl Fn(&FuelOptimizationProblem, &RocketState) -> f64,
-    on_step: impl Fn(&RocketState, f64),
+    mut on_step: impl FnMut(&RocketState, f64),
 ) {
     let mut current_time = 0.0;
     let mut state = initial_state;
