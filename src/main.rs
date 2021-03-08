@@ -4,6 +4,9 @@ use std::collections::BTreeMap;
 use std::f64::{self, consts::E};
 use std::path::Path;
 
+use std::fs;
+use std::fs::File;
+
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 const MACH_ONE: f64 = 343.0;
@@ -51,7 +54,8 @@ struct RocketState {
 impl RocketState {
     fn tick(&mut self, problem: &FuelOptimizationProblem, dt: f64, desired_throttle_opening: f64) {
         let max_throttle_change = problem.max_throttle_change_rate * dt;
-        let throttle_opening_delta = clamp(desired_throttle_opening - self.throttle_opening, -max_throttle_change, max_throttle_change);
+        let throttle_opening_delta = (desired_throttle_opening - self.throttle_opening)
+            .clamp(-max_throttle_change, max_throttle_change);
         self.throttle_opening += throttle_opening_delta;
         self.total_time += dt;
 
@@ -59,9 +63,9 @@ impl RocketState {
         self.position += self.velocity * dt;
 
         self.fuel_mass -= self.mass_flow_rate(problem) * dt;
-        self.fuel_mass = clamp(self.fuel_mass, 0.0, f64::MAX);
+        self.fuel_mass = self.fuel_mass.clamp(0.0, f64::MAX);
 
-        self.position = clamp(self.position, 0.0, f64::MAX);
+        self.position = self.position.clamp(0.0, f64::MAX);
         if self.velocity < 0.0 && self.position == 0.0 {
             self.velocity = 0.0;
         }
@@ -75,29 +79,42 @@ impl RocketState {
         }
     }
 
+    fn air_density(&self, problem: &FuelOptimizationProblem) -> f64 {
+        1.46 * E.powf(-0.000134 * self.position)
+    }
+
+    fn air_drag(&self, problem: &FuelOptimizationProblem) -> f64 {
+        (problem.cross_sectional_area / 2.0)
+            * self.velocity
+            * self.velocity
+            * self.air_density(problem)
+            * problem.drag_coefficient(self.velocity)
+    }
+
     fn acceleration(&self, problem: &FuelOptimizationProblem) -> f64 {
         let total_mass = self.fuel_mass + problem.rocket_mass;
-        let air_density = 1.46 * E.powf(-0.000134 * self.position);
         let thrust = problem.fuel_efficiency * -problem.gravity * self.mass_flow_rate(problem);
         let gravitational_drag = problem.gravity * total_mass;
-        let air_drag = problem.cross_sectional_area / 2.0
-            * self.velocity
-            * self.velocity
-            * air_density
-            * problem.drag_coefficient(self.velocity);
-        (thrust + gravitational_drag - air_drag) / total_mass
+        (thrust + gravitational_drag - self.air_drag(problem)) / total_mass
     }
 }
 
 fn main() -> Result<()> {
     let map = load_drag_coefficient_map(Path::new("./drag_coefficient_map.txt"))?;
+    let hard_coded = {
+        let mut map = BTreeMap::new();
+        map.insert(OrderedFloat(0.0), 0.3);
+        map.insert(OrderedFloat(1.7 * MACH_ONE), 0.15);
+        map.insert(OrderedFloat(5.0 * MACH_ONE), 0.07);
+        map
+    };
     let problem = FuelOptimizationProblem {
         gravity: -9.8,
         rocket_mass: 50.0,
         cross_sectional_area: 0.16,
         fuel_efficiency: 300.0, // ISP in seconds
         max_flow_rate: 20.0,
-        max_throttle_change_rate: 0.2,
+        max_throttle_change_rate: 2.0,
         drag_coefficient: map,
         max_drag_coefficient: 0.3,
     };
@@ -106,21 +123,29 @@ fn main() -> Result<()> {
         ..RocketState::default()
     };
 
+    let mut csv_out = String::from("");
+
     simulate(
         &problem,
         initial_state,
-        100.0,
-        0.1,
+        90.0,
+        0.010,
         |_, _| 1.0,
         |state, current_time| {
-            println!(
-                "{}\t{}\t{}",
+            let data = format!(
+                "{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
                 current_time,
                 state.acceleration(&problem) / -problem.gravity,
-                state.fuel_mass
+                state.fuel_mass,
+                state.position,
+                state.air_density(&problem),
+                state.velocity,
+                state.air_drag(&problem) + (state.fuel_mass * state.acceleration(&problem))
             );
+            csv_out.push_str(&data)
         },
     );
+    fs::write("./data/test2.txt", csv_out).expect("Unable to write file");
     Ok(())
 }
 
@@ -153,7 +178,7 @@ fn simulate(
     total_time: f64,
     timestep: f64,
     desired_throttle: impl Fn(&FuelOptimizationProblem, &RocketState) -> f64,
-    on_step: impl Fn(&RocketState, f64),
+    mut on_step: impl FnMut(&RocketState, f64),
 ) {
     let mut current_time = 0.0;
     let mut state = initial_state;
@@ -162,15 +187,5 @@ fn simulate(
         state.tick(&problem, timestep, desired_throttle(problem, &state));
 
         current_time += timestep;
-    }
-}
-
-fn clamp(value: f64, min: f64, max: f64) -> f64 {
-    if value < min {
-        min
-    } else if value > max {
-        max
-    } else {
-        value
     }
 }
